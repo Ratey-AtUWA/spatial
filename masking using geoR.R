@@ -2,6 +2,7 @@ require(OpenStreetMap)
 require(prettymapr)
 require(gstat)
 require(sp)
+require(raster)
 require(fields)
 require(lctools)
 require(geoR) # especially  for locations.inside() function
