@@ -1,0 +1,788 @@
+---
+title: "Maps and Geostatistics in R"
+subtitle: "Using the packages OpenStreetMap, prettymapr, lctools, geoR, gstat, sp, raster, and fields"
+documentclass: article
+classoption: a4paper
+geometry: margin=0.787in
+output: 
+  pdf_document: 
+  highlight: espresso
+  fig_height: "50%"
+  fig_width: "50%"
+  fig_caption: TRUE
+  number_sections: TRUE
+  toc: TRUE
+---
+
+\author{Andrew Rate, School of Agriculture and Environment, UWA}, \date{\today}
+
+```{r load packages and environment but do not show, message=FALSE, warning=FALSE, echo=FALSE, include=FALSE}
+library(OpenStreetMap)
+library(prettymapr)
+library(lctools)
+library(geoR)
+library(raster)
+library(gstat)
+library(sp)
+library(fields)
+library(tinytex)
+```
+
+\section{Introduction}
+
+This section will show you how to analyse **spatial autocorrelation**, and make a **geostatistical kriging model** to interpolate point georeferenced data based on the autocorrelation structure.
+
+We will use a subset of the National Geochemical Survey of Australia (NGSA) data documented by Caritat and Cooper (2011) to illustrate the various concepts and procedures involved.
+
+We also need a base map (Figure \ref{basemap}), and to obtain and plot a map we use the \texttt{OpenStreetMap} R package (Fellows, 2019). 
+
+\subsection{Making our base map of Western Australia}
+
+There are several options when making maps using \texttt{OpenStreetMap}:
+
+\begin{itemize}
+\item \texttt{type} is "osm" by default, and can also be one of "osm-bw", "apple-iphoto", "bing", "esri", "esri-topo, "osm-transport", "osm-public-transport", "stamen-terrain", "stamen-toner",  "stamen-watercolor". Other map tiles (*e.g*. Mapbox) are available via free registered API (at https://www.mapbox.com/pricing/)
+\item The \texttt{openproj} function converts the map from the OpenStreetMap "Google Mercator" coordinate system to the default Longitude-Latitude (WGS84) projection. Many other projections are available (see Evenden, 2003).
+\end{itemize}
+
+```{r base WA map, fig.height=7.2, fig.width=7, echo=-5, warning=FALSE, message=FALSE, results='hide'}
+WAmap.osm <- openmap(c(-13,108),c(-36,130), type = "esri", zoom = 4) # make a map object
+
+WAmap.LL <- openproj(WAmap.osm) # change projection to Long-Lat
+
+png(filename = "basemap.png", width = 672, height = 691) # draw plot [the map] to a png file
+par(mar=c(4,4,1.5,1.5), mgp=c(1.4,0.3,0), lend=2, ljoin=1, tcl=0.3)
+plot(WAmap.LL, removeMargin=FALSE)
+axis(1)
+mtext(side=1, line=2, text="Longitude (\u00B0 E)",
+      font=2, cex=1.2)
+axis(2)
+mtext(side=2, line=2, text="Latitude (\u00B0 S)",
+      font=2, cex=1.2)
+# do not run dev.off() in RStudio, only for knit to pdf!
+dev.off() # close the png file 'device'
+rm(WAmap.osm) # we don't need this object, as we made the long-lat version
+```
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=4.5in]{basemap.png}
+\caption{Map of Western Australia (rectangular Long-Lat projection) used subsequently as the base map for spatial analyses. Generated using the OpenStreetMap R package, with 'esri' map tiles.}
+\label{basemap}
+\end{figure}
+
+\subsection{Plotting the basemap without OpenStreetMap}
+
+Sometimes the OpenStreetMap package will not work (usually the problems relate to the Java installation on your computer, and/or the need for the XQuartz application on MacOS). In this case we can sometimes use base R graphics to plot a base map, so long as we have digitised data for the map features we require. For our base map the minimum requirement is the Western Australian border, and the code below shows how to use this (we supply Australian border data as a csv file).
+
+Some other R package options for maps are ggmap and rosm.
+
+```{r base R basemap, fig.height=6, fig.width=5.5, message=FALSE, warning=FALSE, include=TRUE, eval=FALSE}
+sf <- 0.85 # an easy way to scale map and plot objects! see its use below...
+par(mfrow = c(1,1), lend = 2, ljoin = 1, mgp = c(2.0,0.3,0)*sf, 
+    oma = c(0,3.5,0,1)*sf, mar = c(3.5,0,1.5,0)*sf, tcl = 0.25*sf)
+Aust_map <- read.csv(file = "Aust_map.csv", stringsAsFactors = TRUE)
+plot(Aust_map, type = "l", asp = 1, xaxt="n", yaxt="n", xlab=NA, ylab=NA,
+     xlim = c(108, 130), ylim = c(-36.5, -12.5))
+rect(par("usr")[1], par("usr")[3], par("usr")[2], par("usr")[4], col = "lightblue")
+polygon(Aust_map$Long.est, Aust_map$Lat.est, col = "beige", border = "tan")
+box()
+lines(c(129.0, 129.0), c(-31.68705, -14.8795), lty = 2, col = "tan")
+axis(1, tcl=0.25, cex.axis=1.4*sf, mgp=c(2.2,0.7,0)*sf, lwd=sf, tcl=0.25*sf) # HORIZ # 
+mtext("Longitude \u00b0E", side=1, line=2*sf, cex=1.4*sf, font=2) # HORIZ AXIS LABEL
+axis(2, tcl=0.25, cex.axis=1.4*sf, mgp=c(2.0,0.4,0)*sf, 
+     lwd=sf, tcl=0.25*sf) # VERT # 
+mtext("Latitude \u00b0S", side=2, line=2*sf, cex=1.4*sf, font=2)
+text(c(112,125), c(-30,-24), 
+     labels = c("Indian\nOcean", "Western\nAustralia"),
+     col = c("steelblue","tan"), font = 3, cex = 1.2)
+addnortharrow(pos = "topleft")
+addscalebar(pos = "bottomleft", widthhint = 0.22)
+```
+
+\subsection{Reading the data}
+
+The data for the exercises in this document will be provided as comma-separated values (csv) files. Use the \texttt{read.csv} function to create R data frames for each dataset, specifying \texttt{stringsAsFactors = TRUE} so that character columns become factors.
+
+```{r read data from csv, paged.print=FALSE, results='hold'}
+ngsaWA <- read.csv(file = "ngsaWA.csv", stringsAsFactors = TRUE)
+NGSAWA_border <- read.csv(file = "NGSAWA_border.csv") # data has no strings!
+# check these:
+head(ngsaWA[,c(1:4,15:18)]) # just a selection of columns to save page space
+cat("\n") # add a line break
+head(NGSAWA_border)
+```
+
+
+\section{Spatial Autocorrelation}
+
+Whether samples are spatially related or not, in terms of a particular soil property, is expressed by the *spatial autocorrelation* or \textbf{Moran's I} (Zhang *et al*., 2008). The Moran's I statistic is based on comparison of the values of a variable at one point with a specified number (or within a specified distance) of neighbouring points. A positive Moran I autocorrelation suggests that locations with similar values of the variable considered tend to cluster together. A Moran's I close to zero suggests no autocorrelation (values of the variable considered are randomly located), and a larger negative Moran's I suggests that similar values of the variable considered tend to be further apart than expected from a random spatial distribution. The Moran's I statistic is tested against the null hypothesis of no spatial autocorrelation, and will vary with the number of neighbouring points in the calculation, with more points giving weaker autocorrelations (Kalogirou, 2019). 
+
+The basic Moran's I is a *global* autocorrelation, across the whole spatial dataset being analysed. The *Local* Moran's I can also be calculated, and shows the extent of significant spatial clustering of similar values (of the variable considered) around each observation. 
+
+Spatial autocorrelation statistics, usually Moran's I, can be calculated using various GIS and statistical software, including several packages which add functionality to R (we use the \texttt{lctools} package).
+
+\subsection{Calculate Global Moran's I}
+
+The subset of the National Geochemical Survey of Australia (NGSA) data we are using is in the object \texttt{ngsaWA}. In this example we look at the spatial autocorrelation of the variable \texttt{As.AR}, which is **arsenic** measured by dissolution of soil in *aqua regia*, and analysis of the digest solution using inductively coupled plasma-mass spectrometry (ICP-MS).
+
+We first create some objects which are subsets of the original data: (1) to remove missing observations, and (2) to make the list of parameters for the \texttt{moransI} function more obvious. We log-transform our variable (As.AR) since it has a significant positive skew. We put the results of the \texttt{moransI} calculation into an object called \texttt{mI}, and use the \texttt{t} (transpose) function from base R to make some compact output. Finally we use \texttt{rm} to tidy up our R environment by removing temporary objects created in our code (always good practice, to avoid clutter!).
+
+```{r global Moran, results='hold'}
+var0 <- "As.AR" # choose the variable of interest
+
+# Calculate global Moran's I
+data_temp <- na.omit(ngsaWA[,c("LONGITUDE", "LATITUDE", var0)])
+Coords <- cbind(data_temp$LONGITUDE, data_temp$LATITUDE)
+bw <- 8 # bw = bandwidth, = number of nearest point for calculation
+mI <- moransI(Coords, bw, log10(data_temp[,3]))
+cat("Global Moran's I for ",var0,"; from the NGSA (WA only), topsoil, -2mm fraction\n", sep="");
+t(as.matrix(mI))
+rm(list = c("data_temp","Coords","bw","mI","var0")) # remove temporary objects
+```
+
+The value of global Moran's I tells us whether the variable of interest (which we specified in \texttt{var0} in the code above) has spatial autocorrelation (*i.e*., is spatially structured). The p-value tests the null hypothesis that there is no spatial pattern in this variable. The vector **local_moran$Ii** in the results object **local_moran** contains the value of Local Moran's I for each observation *i*.
+
+\subsection{Plot local Moran's I}
+
+In the following code, again we subset the data into various objects for convenience, including \texttt{pos0} and \texttt{neg0} which allow plotting different symbols/colours for positive and negative values of Local Moran's I. The object \texttt{WAmap.LL} is an OpenStreetMap which we created earlier.
+
+This example also analyses arsenic concentrations, but it's easy to modify the code to calculate Local Moran's I for another variable, by editing the text string which is assigned to \texttt{var0}. For a list of variables in the original data subset we could run \texttt{names(ngsaWA)}.
+
+The code also makes use of the \texttt{prettymapr} package to add a north arrow with the \texttt{addnortharrow()} function, and a scale bar with the \texttt{addscalebar()} function.
+
+```{r local Moran, echo=-12, fig.height=8, fig.width=7.6, message=FALSE, results='hide'}
+var0 <- "As.AR" # choose the variable of interest
+data_temp <- na.omit(ngsaWA[,c("LONGITUDE", "LATITUDE", var0)])
+Coords <- cbind(data_temp$LONGITUDE, data_temp$LATITUDE)
+mI <- moransI(Coords, 8, log10(data_temp[,3]))
+local_moran <- l.moransI(Coords, 8, log10(data_temp[,3]), scatter.plot = FALSE)
+plotdata <- as.data.frame(cbind(Coords[,1], Coords[,2], 
+                                local_moran$Ii, local_moran$p.value))
+colnames(plotdata) <- c("Longitude", "Latitude", "MoranI", "p_value")
+
+# -=-=-=-=- plotting only Moran's I with p<=0.05 -=-=-=-=-=-
+pos0 <- subset(plotdata, plotdata$MoranI>0 & plotdata$p_value<=0.05)
+neg0 <- subset(plotdata, plotdata$MoranI<0 & plotdata$p_value<=0.05)
+#
+png(filename = "As_LmI.png", width = 755, height = 787)
+par(mfrow = c(1,1), mar=c(4,4,1,1), mgp=c(2, 0.7, 0), 
+    font.lab = 2, lend = "square", tcl = 0.5, lwd = 1)
+plot(WAmap.LL, removeMargin = FALSE)
+axis(1, mgp=c(2, 0.5, 0), cex.axis = 1.3)
+mtext(side=1, line=2, text="Longitude (\u00B0 E)",
+      font=2, cex=1.2)
+axis(2, mgp=c(2, 0.5, 0), cex.axis = 1.3)
+mtext(side=2, line=2, text="Latitude (\u00B0 S)",
+      font=2, cex=1.2)
+addnortharrow(pos="topright", border=1, lwd=1, text.col=1,  
+              padin=c(0.1,0.2), scale=1.2)
+addscalebar(linecol=1, label.col=1, lwd=1, pos="bottomright", 
+            plotepsg=4326, label.cex=1.2, htin=0.15, 
+            padin=c(0.4,0.4), widthhint = 0.25)
+# lines(Aust_map$Long.est, Aust_map$Lat.est, col = "moccasin", lwd = 2, lty = 2)
+box()
+
+points(Coords, pch=3, cex=0.5, col = "grey67")
+with(pos0, symbols(Longitude, Latitude, circles = sqrt(MoranI*0.02), 
+                   inches = F, fg = "blue3", bg = "#00008080", add= TRUE))
+with(neg0, symbols(Longitude, Latitude, squares = sqrt(MoranI*-0.04), 
+                   inches = F, fg = "red3", bg = "#80000080", add= TRUE))
+rect(108.6,-17,119,-13, col="#F3F2DA", border = "white", lwd = 2)
+legend("topleft", bty = "n", inset = 0.05, cex = 1.2,
+       legend = c("Positive I", "Negative I"),
+       title = paste0("Local Moran's I for log(",var0, 
+                      ") in\nNGSA_TOS-2mm (p \u2264 0.05 only)"),
+       pch = c(21, 22), pt.cex = c(2, 1.7),
+       col = c("blue3", "red3"), pt.bg = c("#00008080", "#80000080"),
+       title.col = "navy")
+text(108.6,-18, labels = paste("Global Moran's I =", 
+                             signif(as.numeric(mI[2]),3),
+                             "\nRandomization p-value =", 
+                             signif(as.numeric(mI[7]),3)), 
+     pos = 4, cex = 1.2)
+dev.off() # do not run dev.off() in RStudio, only for knit to pdf!
+rm(list = c("data_temp","Coords","mI", "plotdata", "pos0", "neg0"))
+```
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=5in]{As_LmI.png}
+\caption{Map of Local Moran's I for arsenic (As) concentrations in the WA subset of the NGSA data, -2mm topsoil fraction. The Global Moran's I parameter is also shown beneath the legend.}
+\label{As_LmI}
+\end{figure}
+
+The map in Figure \ref{As_LmI} shows numerous sample locations having positive Local Moran's I for the selected variable, and a significant global spatial autocorrelation (Moran's I $\approx$ 0.45, with a very low p-value). For a variable with low Global Moran's I (non-significant), see the example for mercury (Hg) in Figure \ref{Hg_x4} in the Appendix. 
+
+\section{Using the \texttt{geoR} package for geostatistics: variograms, kriging, and visualization}
+
+\subsection{Make a geoR geodata object from a data frame}
+
+```{r make geoR geodata object, paged.print=FALSE, results='hold'}
+temp_data <- na.omit(as.data.frame(cbind(ngsaWA$LONGITUDE,ngsaWA$LATITUDE,
+                                         ngsaWA$As.AR)))
+colnames(temp_data) <- c("Longitude","Latitude","As.AR")
+# run this if needed # temp_data$As.AR[temp_data$As.AR >100] <- NA
+geo.As.AR <- as.geodata(as.matrix(cbind(jitterDupCoords(temp_data[,1:2], max=5),
+                                      log10(temp_data[,3]))))
+geo.As.AR$borders <- cbind(NGSAWA_border$Long.est, NGSAWA_border$Lat.est)
+rm(temp_data)
+summary(geo.As.AR)
+```
+
+\subsection{Plot the geodata object for checking}
+
+```{r inspect geodata object, echo=2, fig.height=6, fig.width=6, results='hide'}
+png(filename = "As_geodata_plot.png", width = 576, height = 576)
+plot(geo.As.AR)
+dev.off() # do not run dev.off() in RStudio, only for knit to pdf!
+```
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=4in]{As_geodata_plot.png}
+\caption{Summary of geoR geodata object for arsenic (As) concentrations in the WA subset of the NGSA data, -2mm topsoil fraction.}
+\label{As_geodata_plot}
+\end{figure}
+
+Figure \ref{As_geodata_plot} shows:
+\begin{enumerate}
+\item (top left) the spatial locations with different colors for each quartile in the variable
+\item (top right) the y-coordinate (e.g. Latitude, Latitude) plotted vs. the scaled variable 
+\item (bottom left) the x-coordinate (e.g. Longitude, Longitude) plotted vs. the scaled variable 
+\item (bottom right) a histogram and density plot of the scaled variable
+\end{enumerate}
+
+The plots in Figure \ref{As_geodata_plot} give information that we should check before proceeding to generate a geostatistical model. The sampling locations will ideally cover the whole area without substantial gaps, and the variable should not have a distribution which is too skewed. To reduce skewness, we $\mathrm{log_{10}}$-transformed \texttt{As.AR} when we made the geodata object from the data frame.
+
+\subsection{Plot a map with range-class symbols}
+```{r map samples in range classes, echo=-1, fig.height=8., fig.width=7.8, message=FALSE, warning=FALSE, echo=2:22}
+png(filename = "As_Tukey_plot.png", width = 748, height = 768)
+palette(c("black",rev(c("#E00000","#E55000","#A68A00","#CCBB00",
+                        "#00A050","#658AB2","#4A4FA4","#69307A")),
+          "grey92","white"))
+par(mar=c(4,4,1.5,1.5), mgp=c(1.4,0.3,0), lend=2, ljoin=1, tcl=0.3)
+plot(WAmap.LL, removeMargin=FALSE)
+axis(1)
+mtext(side=1, line=2, text="Longitude (\u00B0 E)",
+      font=2, cex=1.2)
+axis(2, mgp=c(2, 0.5, 0), cex.axis = 1.3)
+mtext(side=2, line=2, text="Latitude (\u00B0 S)",
+      font=2, cex=1.2)
+addnortharrow(pos="topleft", border=1, lwd=1, text.col=1,  
+              padin=c(0.2,0.2), scale=1.4)
+addscalebar(linecol=1, label.col=1, lwd=1, pos="bottomright", 
+            plotepsg=4326, label.cex=1.4, htin=0.2, 
+            padin=c(0.5,0.3))
+# rect(117,-24,124,-26, col = "#F3F2DA", border = "#F3F2DA")
+# text(125,-23, labels = "Western\nAustralia", font = 2, cex = 1.2)
+# 
+points.geodata(geo.As.AR, add=T, xlab = "Longitude (m)", ylab = "Latitude (m)",
+               cex.min = 1, cex.max = 2.5, 
+               pt.divide = fivenum(geo.As.AR$data),
+               col.seq=c(2,3,5,6,8,9))
+polygon(NGSAWA_border$Long.est, NGSAWA_border$Lat.est, lty=2, lwd=2,
+        border="honeydew2")
+q0 <- signif((10^fivenum(geo.As.AR$data)),3)
+legend(109, -29.4,  
+       legend=c(paste0("> ", q0[5]), 
+                paste0(q0[4]," - ",q0[5]), 
+                paste0(q0[3]," - ",q0[4]), paste0(q0[2]," - ",q0[3]), 
+                paste0(q0[1]," - ",q0[2]), paste0(" \u2264 ",q0[1])), 
+       cex = 1.3, pch=19, pt.cex=seq(2.5, 1, l=6), inset = 0.03, 
+       bty="n", y.intersp=1.4, col=c(9,8,6,5,3,2), x.intersp = 1.)
+legend(109, -29.4, legend=c(" "," "," "," "," "," "), 
+       cex = 1.3, pch=1, pt.cex=seq(2.5, 1, l=6), inset = 0.03, 
+       bty="n", y.intersp=1.4, col="black", x.intersp = 1.)
+text(108, -29, labels=expression(bold("TOS -2mm\nAs.AR range (mg/kg)")),
+     pos = 4, cex = 1)
+box()
+par(new=TRUE, fig=c(0.07,0.17,0.11,0.335), mar=c(1,1,.5,.5), 
+    col.lab=1, col.axis=1, mgp=c(.9,0.2,0), xaxt="n", yaxt="n", bty = "n", ann = F) 
+boxplot(geo.As.AR$data)
+dev.off() # do not run dev.off() in RStudio, only for knit to pdf!
+rm(q0)
+```
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=5in]{As_Tukey_plot.png}
+\caption{Map of arsenic (As) concentrations expressed as symbols for concentration ranges (from the WA subset of the NGSA data, -2mm topsoil fraction).}
+\label{As_Tukey_plot}
+\end{figure}
+
+The map's symbol classes in Figure \ref{As_Tukey_plot} are separated by the standard Tukey box plot thresholds (minimum, lower-hinge, median, upper-hinge, maximum) -- the legend is aligned with the relevant box plot. We see a wide range of As concentration, with greater As probably associated with iron-rich rocks in the Pilbara (northwest WA) and central Yilgarn (central south WA).
+
+\subsection{Variograms and Kriging}
+
+The variogram, simplistically, is the relationship between the variance between sample points, and the distance separating those sample points. In many instances, it is desirable to predict a soil property at locations where samples have not been taken, and this requires some assumption(s), usually a mathematical model, about how that soil property varies with distance. This information is actually provided by the variogram. In many cases the form of the variogram relationship can be simulated adequately with a mathematical function. The variogram function can then be used to interpolate between points - a process known as kriging (after the originator of the method and pioneer of geostatistics, Professor Danie Krige). Variograms and kriging are summarised expertly by Oliver and Webster (2014) and Reimann *et al*. (2008). Webster and Oliver (, 1993 #4365) argue that at least 100 observations (and preferably more) are needed for kriging interpolation, based on variogram analysis to establish the relationship between sample points as a function of separation distance. The United States Environmental Protection Agency (USEPA, 2002) reports that, for variograms and kriging,  stratified sampling can have a lower sample number requirement than a simple grid, but that kriging accuracy is similar for all sampling designs.
+
+Figure \ref{Variogram_pars} shows some of the key concepts of variogram analysis. There is some semivariance that exists even for very closely-spaced samples, and this is called the *nugget*. This semivariance increases with increasing distance between samples to a limiting value called the *sill*. At some distance there is no increase in semivariance (which then approaches the variance of the complete dataset), and this distance is called the *range*, the value of which depends on the mathematical model used to describe the semivariance-distance relationship. The *practical range*, the distance at which samples are independent, is related to the model range by a factor dependent on the model equation.
+
+```{r make binned and cloud variograms for next code chunk}
+bin.As.AR <- variog(geo.As.AR, option="bin", uvec=16, bin.cloud=T,
+                    estimator.type="modulus", max.dist=12., messages = F)
+cloud.As.AR <- variog(geodata = geo.As.AR, trend = "1st", option = "cloud", 
+    estimator.type = "modulus", max.dist = 240, bin.cloud = T)
+```
+
+```{r plot showing variogram parameters, echo=FALSE, fig.height=4.67, fig.width=6, results='hide'}
+png(filename = "Variogram_pars.png", width=576, height = 448)
+par(mar = c(3, 3, 1, 1), font.lab = 2, mgp = c(1.7, 0.3, 0), tcl = 0.5,
+    cex.lab = 1.2, cex.axis = 1., xaxs = "i", yaxs = "i",
+    lend = "square", ljoin = "mitre")
+plot(bin.As.AR$v ~ bin.As.AR$u, pch = 3, lwd = 3, 
+     col = "blue", cex = 1., xaxt = "n", yaxt = "n",
+     xlab = "Distance (degrees long/lat)", ylab = "",
+     xlim = c(0, 20), ylim = c(0, 1.5))
+axis(1)
+axis(2) # , col = "blue", col.ticks = "blue"
+mtext("Semivariance", 2, 1.7, cex = 1.2, font = 2) # , col = "blue"
+abline(v = seq(0.7,10, length.out = 16), col = "grey70", lty = 2)
+points(cloud.As.AR$v ~ cloud.As.AR$u, pch = 1, cex = 0.6, col = "grey60")
+#
+lines.variomodel(cov.model = "sph", cov.pars = c(0.3137, 13.3741), nugget = 0.09, lwd = 2,
+                 col="blue", max.dist=20)
+abline(h = 0.09, lwd = 2, col = "red3", lty = 2)
+abline(h = 0.4037, lwd = 2, col = "red3", lty = 2)
+points(bin.As.AR$v ~ bin.As.AR$u, pch = 3, lwd = 3, 
+     col = "blue", cex = 1.)
+arrows(1, 0, 1, 0.09, lwd = 2, col = "red3", code = 3, length = 0.1, angle = 20)
+text(1.04, 0.043, pos = 4, labels = "Nugget semivariance", 
+     col = "white", cex = 1.2)
+text(1, 0.045, pos = 4, labels = "Nugget semivariance", 
+     col = "red3", cex = 1.2)
+arrows(17, 0.09, 17, 0.4037, lwd = 2, col = "#70300D", code = 3, length = 0.15, angle = 20)
+text(17.04, 0.247, pos = 2, labels = "Sill\nsemivariance", 
+     col = "white", cex = 1.2)
+text(17, 0.25, pos = 2, labels = "Sill\nsemivariance", 
+     col = "#70300D", cex = 1.2)
+legend("topleft", legend = c("Individual mean square differences (cloud)",
+                             "Mean square differences in bins",
+                             "Spherical variogram model"),
+       pch = c(1, 3, NA), pt.lwd = c(1, 4, NA), lwd = c(NA, NA, 2),
+       col = c("grey60", "blue", "blue"), pt.cex = c(0.9, 1., NA),
+       cex = 1., inset = 0.02, box.col = "grey90", box.lwd = 2, bg="#FFFFFFC0")
+dev.off() # do not run dev.off() in RStudio, only for knit to pdf!
+```
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=4.5in]{Variogram_pars.png}
+\caption{Some of the key concepts of variogram analysis (see text for definitions).}
+\label{Variogram_pars}
+\end{figure}
+
+\subsection{Make a binned variogram object}
+
+We calculate the semivariance within *bins* (distance intervals) which combine the mean square difference within a set of intervals of sample separation distances (\ref{As_variog_binned}). This allows both visualization of the trend in semivariance with distance, and fitting of a model variogram equation to the semivariance--distance relationship. The number of bins can be determined "automatically" by an algorithm, or can be specified by the user. We usually constrain the maximum separation distance (\texttt{max.dist}) to be less than the maximum spatial extent of the data -- Reimann *et al.* (2008) suggest that the maximum distance for the variogram should be $\approx$~40% of the maximum dataset distance which for these data is 19.66~$^{\circ}$ (see summary of geodata object above).
+
+```{r make variogram object, echo=-1, fig.height=3.5, fig.width=4.5, message=FALSE, results='hide'}
+png(filename = "As_variog_binned.png", width = 432, height = 336)
+par(mar = c(3,3,1,1), mgp = c(1.7,0.3,0), font.lab=2, tcl=0.3)
+bin.As.AR <- variog(geo.As.AR, option = "bin", uvec = 16, 
+                    bin.cloud = TRUE, estimator.type = "modulus",
+                    max.dist=12., messages = FALSE)
+plot(bin.As.AR)
+dev.off() # do not run dev.off() in RStudio, only for knit to pdf!
+```
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=4in]{As_variog_binned.png}
+\caption{Plot of experimental binned variogram for arsenic (As) in the WA subset of the NGSA data, -2mm topsoil fraction.}
+\label{As_variog_binned}
+\end{figure}
+
+\subsection{Fit a variogram model using weighted least squares}
+
+We need to choose the type of model (*e.g*. exponential, spherical, linear, *etc*.), and make decisions about whether to set the nugget at a fixed value, or let the fitting procedure optimise the nugget value. The \texttt{ini.cov.pars} parameter provides initial guesses of the sill semivariance and range parameters. The parameter \texttt{weights="npairs"} means that the residual sum of squares is weighted by the number of observation pairs (*i.e.* separation distances) in each bin. In Figure \ref{As_variog_model} we show models fitted with a fixed value for the nugget semivariance.
+
+A useful function to choose a variogram model, and obtain initial parameter estimates is the interactive \texttt{eyefit} function in \texttt{geoR}.
+
+```{r fit variogram model, fig.height=3, fig.width=4, results='hold'}
+fit.As.AR <- variofit(bin.As.AR, ini.cov.pars = c(0.22,8), 
+                      fix.nugget=TRUE, nugget=0.09, 
+                      cov.model="sph", weights="npairs", max.dist=12.,
+                      messages = FALSE)
+print(fit.As.AR)
+```
+
+\begin{verbatim}
+Note:        _____________________________________________
+...      |\  |  The variogram model parameters are:      |
+---------  \ |  * tausq is the variogram nugget          |
+---------  / |  * sigmasq is the variogram partial sill  |
+'''      |/  |  * phi is the variogram range             |
+             +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+\end{verbatim}
+
+\subsubsection{The experimental and model variograms}
+```{r plot experimental and model variograms, fig.height=3.6, fig.width=5, results='hide', echo=2:5}
+png(filename = "As_variog_model.png", width = 480, height = 345)
+par(mar = c(3, 3, 1, 1), mgp = c(1.7, 0.3, 0), tcl = 0.3, font.lab = 2)
+plot(bin.As.AR, cex = 1.6, cex.lab = 1.4, cex.axis = 1.2,
+     xlab = "Distance (degrees long/lat)")
+lines(fit.As.AR, lwd=2, col="purple")
+legend("bottomright", legend = c("Weighted LS fit"), 
+       pch=NA, lty = 1, lwd = 2, col = "purple", 
+       bty = "n", seg.len = 3, inset = 0.03, cex = 1.4)
+dev.off() # do not run dev.off() in RStudio, only for knit to pdf!
+```
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=4in]{As_variog_model.png}
+\caption{Plot of experimental binned variogram, and spherical variogram models, for arsenic (As) in the WA subset of the NGSA data, -2mm topsoil fraction.}
+\label{As_variog_model}
+\end{figure}
+
+\subsection{perform kriging interpolation}
+```{r make kriging model, results='hold'}
+pred.grid <- expand.grid(seq(min(geo.As.AR$coords[,1]), max(geo.As.AR$coords[,1]), 0.3),
+                         seq(min(geo.As.AR$coords[,2]), max(geo.As.AR$coords[,2]), 0.3))
+krige.As.AR <- krige.conv(geo.As.AR, locations=pred.grid, 
+                          krige=krige.control(obj.m=fit.As.AR, cov.model="sph"))
+summary(krige.As.AR$predict)
+summary(krige.As.AR$krige.var)
+```
+
+\subsection{Plot a map with overlay of the kriging predictions}
+```{r map kriging model predictions, fig.height=12., fig.width=11.6, message=FALSE, warning=FALSE, results='hide'}
+palette(c("black",rev(c("#E00000","#E55000","#A68A00","#CCBB00",
+                        "#00A59A","#658AB2","#706080","#69307A")),"grey92",
+          "white"))
+png(filename = "KrigPred.png", width = 760, height = 787)
+par(mar=c(4,4,1.5,1.5), mgp=c(1.4,0.3,0), lend=2, ljoin=1, tcl=0.3)
+plot(WAmap.LL, removeMargin=FALSE)
+axis(1, mgp=c(2, 0.5, 0), cex.axis = 1.3)
+mtext(side=1, line=2, text="Longitude (\u00B0 E)",
+      font=2, cex=1.6)
+axis(2, mgp=c(2, 0.5, 0), cex.axis = 1.3)
+mtext(side=2, line=2, text="Latitude (\u00B0 S)",
+      font=2, cex=1.6)
+addnortharrow(pos="topleft", border=1, lwd=1, text.col=1,  
+              padin=c(0.2,0.2), scale=1)
+addscalebar(linecol=1, label.col=1, lwd=1, pos="bottomright", 
+            plotepsg=4326, label.cex=1.2, htin=0.2, 
+            padin=c(0.3,0.3))
+# 
+image(krige.As.AR, loc = pred.grid, values=krige.As.AR$pred, add=T, 
+      xlab = "UTM Zone 50 Longitude (m)",
+      ylab = "UTM Zone 50 Latitude (m)", cex.lab=0.3*sf, cex.axis=0.3*sf,
+      col = colorRampPalette(c("aliceblue", "midnightblue"), space="Lab")(21))
+legend.krige(x.leg=c(111.5,121.5), y.leg=c(-14.7,-13.9), values=krige.As.AR$pred,
+             col = colorRampPalette(c("aliceblue", "midnightblue"), space="Lab")(21),
+             offset.leg=-3, cex=1.4)
+text(111.5,-13.4,labels="log10(As.AR)", cex = 1.4, pos=4)
+# contour(krige.As.AR, add=T, values=krige.As.AR$pred, col="grey20", labcex=3, 
+#         levels=log10(c(25,50)), labels=c(25,50), lwd=5)
+contour(krige.As.AR, add=T, values=krige.As.AR$pred, 
+        col = colorRampPalette(c("#302005","darkorange","gold"))(10), 
+        labcex=1,
+        levels=log10(c(0.1,0.15,0.2,0.5,1,1.5,2,3,5,10,15,20,25,30,40,50,100,200,300,1000)), 
+        labels=c(0.1,0.15,0.2,0.5,1,1.5,2,3,5,10,15,20,25,30,40,50,100,200,300,1000))
+legend(111.5,-16, legend = c("Untransformed contours (mg/kg)"),
+       border = "transparent", bg = "#514B7E", text.col = "gold", 
+       pch="2", lty = 1, col = "gold", seg.len = 3, cex = 1.4)
+box()
+dev.off() # do not run dev.off() in RStudio, only for knit to pdf!
+```
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=5.5in]{KrigPred.png}
+\caption{Map showing kriging predictions for arsenic (As) in the WA subset of the NGSA data, -2mm topsoil fraction.}
+\label{KrigPred}
+\end{figure}
+
+Now that we have a variogram model, we can use it in the kriging interpolation process to make a map of predicted values of our variable, as shown further on in Figure \ref{KrigPred}. To perform an interpolation, we need to provide a grid of locations that we want to predict values at. This is done using the \texttt{expand.grid} function from base \texttt{R} -- we are using $\approx$ 0.3 degree increments, but these can be changed (\textit{e.g}., larger increments for a coarser grid). Next, when using the \texttt{krige.conv} function from the \texttt{geoR} package, we need to specify the original data subset (\texttt{geo.As.AR}), the prediction locations (\texttt{pred.grid}), and some detail of the variogram model (\texttt{fit.As.AR}) and (\texttt{cov.model="sph"}).
+
+The output of the \texttt{krige.conv} function is a list which contains 2 numeric components: \texttt{\$predict}, containing the interpolated predictions, and \texttt{\$krige.var} which contains the estimated variance, at each interpolated point on the grid.
+
+We plot the base map which we have already made and use the \texttt{image}, then the \texttt{contour} functions from base \texttt{R} graphics to overlay a colour map of the interpolated variable \ldots\texttt{\$predict} (specifying \texttt{add = TRUE} for both). It's good to add a legend key for the colour map, which we do using the \texttt{legend.krige} function from the \texttt{geoR} package, making sure that the sequence of colours created using \texttt{colorRampPalette} are the same for both \texttt{image} and \texttt{legend.krige}. For a variable with less variation across the sampled area (and relatively large nugget semivariance), see the example for mercury (Hg) in Figure \ref{Hg_x4} in the Appendix.
+
+\subsubsection{kriging uncertainties}
+
+It's also useful to map the estimated variance at each point on our prediction grid, and we can see the output of such a map in Figure \ref{KrigErr}. 
+
+The next code creates this map of the estimated variance at each point on our interpolation grid, so the code is similar except we specify and \ldots\texttt{\$krige.var} instead of \ldots\texttt{\$predict}.
+
+```{r map kriging model variance, fig.height=12, fig.width=11.6, message=FALSE, warning=FALSE, results='hide'}
+palette(c("black",rev(c("#E00000","#E55000","#A68A00","#CCBB00",
+                        "#00A59A","#658AB2","#706080","#69307A")),"grey92",
+          "white"))
+png(filename = "KrigErr.png", width = 760, height = 787)
+par(mar=c(4,4,1.5,1.5), mgp=c(1.4,0.3,0), lend=2, ljoin=1, tcl=0.3)
+plot(WAmap.LL, removeMargin=FALSE)
+axis(1, mgp=c(2, 0.5, 0), cex.axis = 1.3)
+mtext(side=1, line=2, text="Longitude (\u00B0 E)",
+      font=2, cex=1.6)
+axis(2, mgp=c(2, 0.5, 0), cex.axis = 1.3)
+mtext(side=2, line=2, text="Latitude (\u00B0 S)",
+      font=2, cex=1.6)
+addnortharrow(pos="topleft", border=1, lwd=1, text.col=1,  
+              padin=c(0.2,0.2), scale=1)
+addscalebar(linecol=1, label.col=1, lwd=1, pos="bottomright", 
+            plotepsg=4326, label.cex=1.2, htin=0.2, 
+            padin=c(0.3,0.3))
+# 
+image(krige.As.AR, loc = pred.grid, values=krige.As.AR$krige.var, add=T, 
+      xlab = "UTM Zone 50 Longitude (m)",
+      ylab = "UTM Zone 50 Latitude (m)", cex.lab=0.3*sf, cex.axis=0.3*sf,
+      col = colorRampPalette(c("lavender", "purple4"), space="Lab")(21))
+legend.krige(x.leg=c(113,120), y.leg=c(-15,-14.5), values=krige.As.AR$krige.var,
+             col = colorRampPalette(c("lavender", "purple4"), space="Lab")(21),
+             offset.leg=-3, cex=1.4)
+text(113,-14,labels="Variance in predicted log10(As.AR)", cex = 1.4, pos=4)
+polygon(NGSAWA_border$Long.est, NGSAWA_border$Lat.est, lty=2, lwd=2,
+        border="#F3F2DA")
+points(geo.As.AR$coor[,1], geo.As.AR$coor[,2], pch = 3, cex = 0.5)
+legend(113.2, -16.5, legend="Sampling points", cex = 1.4,
+       pch = 3, pt.cex = 0.5, x.intersp = 2, 
+       bg = "#C49BD6", box.col = "purple3")
+box()
+dev.off() # do not run dev.off() in RStudio, only for knit to pdf!
+```
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=5in]{KrigErr.png}
+\caption{Map showing kriging uncertainties for arsenic (As) in the WA subset of the NGSA data, -2mm topsoil fraction.}
+\label{KrigErr}
+\end{figure}
+
+You should notice that the low variance (light colours) is close to the actual sample points, and greater variance (darker colours) is in locations further from sample points. As we would expect, predictions are more precise the closer we are to locations having actual measurements!
+
+We can perform a similar set of procedures for a variable which does **not** show significant spatial autocorrelation (example in Figure \ref{Hg_x4} in the Appendix). In this case, we have (i) an  experimental variogram which has high intrinsic variance (*i.e*., a high *nugget*) with low spatial variance (partial *sill*), and (ii) greater kriging variance relative to kriging predictions. **Try it!**
+
+\subsection{Additional Issues for Variograms and Kriging}
+
+\P the semivariance distance relationship may not be the same in all directions (\textit{anisotropic}). In such cases we need a directional variogram -- in \texttt{geoR} this can be done with parameters in the \texttt{variog} function, or by using the special \texttt{vario.4} function (see http://www.leg.ufpr.br/geoR/geoRdoc/geoRintro.html#exploratory).
+
+\P The mean value of our mapping variable may show a systematic variation across our sampling area, such as a linear trend. This is a lack of "stationarity", and such a trend should be incorporated into a variogram model (see http://www.leg.ufpr.br/geoR/geoRdoc/geoRintro.html#estimation).
+
+\P In most natural systems, the variable of interest will not just change from place to place, but will also be dependent on on or more other variables. In these cases, we need to use more advanced interpolation methods such as \textit{co-kriging} (see http://chris35wills.github.io/geostats/ for some good explanations).
+
+\section{Inverse Distance Interpolation - an Alternative to Kriging}
+
+We can only generate a reliable experimental variogram with at least 100 sample points (Webster and Oliver, 1993). If we have less than 100 sample points, we can use other interpolation methods, such as splines or inverse distance weighting. Inverse distance is a good option since it still encapsulates Tobler's First Law of Geography (Tobler, 2004):
+
+\begin{quote}
+"Everything is related to everything else, but near things are more related than distant things." ---Professor Waldo Tobler, University of California, Santa Barbara
+\end{quote}
+
+The basis of inverse distance interpolation is that the value of our dependent variable at any point is a weighted mean of the values of that variable at a predetermined number of nearest points (or by default at all points). The weights for the mean calculation are proportional to the inverse of the distance between the data point and the prediction location, raised to the power value p. In the gstat R package we will use, the default value of p is 2, corresponding to inverse distance squared interpolation. 
+
+The next two code chunks contain some example code to do the job, using the packages **sp** (Pebesma and Bivand, 2020), **gstat** (Pebesma, 2004), **raster** (Hijmans, 2020), and **fields** (Nychka *et al*., 2021).
+
+**The first chunk** (a) conditions the data, (b) performs the inverse-distance-weighted interpolation, and (c) uses the sampling area boundary to suppress locations in the interpolated grid which are not in the sampling area.
+
+```{r inverse distance interpolation for map in chunk below}
+mesh <- c(50,61) # grid dimensions c(x=Longitude, y=Latitude)
+sp.grid.ngsawa <- expand.grid(seq(min(ngsaWA$LONGITUDE), max(ngsaWA$LONGITUDE), l = mesh[1]),
+                              seq(min(ngsaWA$LATITUDE), max(ngsaWA$LATITUDE), l = mesh[2]))
+coordinates(sp.grid.ngsawa) <- ~Var1+Var2
+projection(sp.grid.ngsawa) <- "+proj=longlat +datum=WGS84"
+
+# make data subset of coords and variable with no missing observations
+sp.ngsaWA.As.AR <- na.omit(ngsaWA[,c("As.AR", "LONGITUDE", "LATITUDE")])
+colnames(sp.ngsaWA.As.AR) <- c("As.AR", "Longitude", "Latitude")
+sp.ngsaWA.As.AR$As.AR <- log10(sp.ngsaWA.As.AR$As.AR)
+coordinates(sp.ngsaWA.As.AR) <- ~Longitude+Latitude
+projection(sp.ngsaWA.As.AR) <- "+proj=longlat +datum=WGS84"
+
+# perform inverse distance interpolation
+#   include the argument nmax = n to restrict calculation to n nearest points
+#   also the argument idp specifies the inverse distance weighting power (p)
+As.AR.idw <- idw(As.AR~1, locations = sp.ngsaWA.As.AR, newdata = sp.grid.ngsawa)
+
+# make idw object into spatial object
+As.AR.idw.xyz <- as.data.frame(cbind(As.AR.idw@coords[,1], As.AR.idw@coords[,2], As.AR.idw@data[,1]))
+colnames(As.AR.idw.xyz) <- c("Longitude","Latitude","As.AR")
+
+# find the row numbers of points inside the site boundary...
+# n.b. the object ngsawa_boundary contains coordinates of the 
+# boundary around the sampling area. So the masking can be
+# omitted if we want to plot the whole interpolation grid.
+inside <- as.numeric(row.names(locations.inside(As.AR.idw.xyz[,1:2], 
+                                                NGSAWA_border[,c("Long.est","Lat.est")])))
+
+# ...and use this to find the rows *outside* the boundary
+mask_in <- rep(0, length(As.AR.idw.xyz$As.AR))
+mask_in[inside] <- rep(1, length(inside))
+mask_out <- which(mask_in==0)
+
+# make values outside the boundary NA
+As.AR.idw.xyz$As.AR[mask_out] <- rep(NA, length(mask_out))
+print(summary(As.AR.idw.xyz))
+rm(list = c("inside","mask_in", "mask_out"))
+```
+
+The **second chunk** plots the interpolated grid (within the sampling area boundary) and its legend overlaid on the base map, and adds categorized Local Moran's I symbols and other spatial autocorrelation information (see explanations below the code, and in the caption for Figure \ref{IDW_map}).
+
+```{r map using IDW from chunk above with LISA local autocorrelations, fig.height=9.4, fig.width=9, message=FALSE, warning=FALSE, results='hide'}
+# set up plotting
+# draw base map
+sf <- 1.3 # an easy way to scale map and plot objects! see its use below...
+palette(c("black","blue4","blue2","cyan4","darkolivegreen3","gold2","darkorange1",
+          "tomato3","red2","white","transparent"))
+par(mfrow = c(1,1), lend = 2, ljoin = 1, mgp = c(2.0,0.3,0)*sf, 
+    oma = c(0,3.5,0,1)*sf, mar = c(3.5,0,1.5,0)*sf, tcl = 0.25*sf)
+
+# draw map #
+png(filename = "ngsaWA_IDW.png", width = 900, height = 980)
+plot(WAmap.LL, removeMargin=FALSE)
+axis(1, tcl=0.25, cex.axis=1.4*sf, mgp=c(2.2,0.7,0)*sf, lwd=sf, tcl=0.25*sf) # HORIZ # 
+mtext("Longitude \u00b0E", side=1, line=2*sf, cex=1.4*sf, font=2) # HORIZ AXIS LABEL
+axis(2, tcl=0.25, cex.axis=1.4*sf, mgp=c(2.0,0.4,0)*sf, 
+     lwd=sf, tcl=0.25*sf) # VERT # 
+mtext("Latitude \u00b0S", side=2, line=2*sf, cex=1.4*sf, font=2) # VERT AXIS LABEL
+
+# overlay plot of interpolated values
+# use image.plot() function from fields:: package 2
+bands <- seq(min(As.AR.idw.xyz$As.AR, na.rm=T),max(As.AR.idw.xyz$As.AR, na.rm=T), l=22)
+image.plot(seq(min(ngsaWA$LONGITUDE), max(ngsaWA$LONGITUDE), l = mesh[1]),
+           seq(min(ngsaWA$LATITUDE), max(ngsaWA$LATITUDE), l = mesh[2]), 
+           matrix(data = As.AR.idw.xyz$As.AR, nrow = mesh[1], ncol = mesh[2]), add = T,
+           col = colorRampPalette(c("aliceblue", "midnightblue"), space="Lab")(21),
+           horizontal = TRUE, smallplot= c(0.62,0.95,0.54,0.58), 
+           breaks = bands, lab.breaks = signif(10^bands,3),
+           legend.args = list( text = expression(bold("IDW interp. Soil As.AR (mg/kg)")),
+                               cex = 1.2*sf, side = 3, line = .3*sf),
+           axis.args = list(cex.axis = 1.2*sf, mgp=c(2.0,0.6,0)*sf)) # (mg/kg)
+rm(bands)
+
+# optionally overlay map annotations etc.
+contour(seq(min(ngsaWA$LONGITUDE), max(ngsaWA$LONGITUDE), l = mesh[1]),
+        seq(min(ngsaWA$LATITUDE), max(ngsaWA$LATITUDE), l = mesh[2]), 
+        matrix(data = As.AR.idw.xyz$As.AR, nrow = mesh[1], ncol = mesh[2]), add = T,
+        col = "steelblue4", lwd=sf, labcex=sf,
+        levels=log10(c(0.01,0.02,0.03,0.1,0.2,0.3,1,2,3,10,20,30,
+                       50,100,200,300,500,1000,2000,3000,1e4)),
+        labels=c(0.01,0.02,0.03,0.1,0.2,0.3,1,2,3,10,20,30,
+                 50,100,200,300,500,1000,2000,3000,10000))
+with(ngsaWA, points(LATITUDE ~ LONGITUDE, pch = 3, lwd = sf, cex=0.9*sf))
+box(lwd=sf)
+addnortharrow(padin=c(0.3,0.2)*sf, scale=1.2*sf, lwd=1*sf)
+addscalebar(htin=0.2*sf, padin=c(0.3,0.3)*sf, 
+            label.cex=1.2*sf, lwd=1*sf, pos="bottomright", widthhint = 0.3)
+
+# add LISA based on Local Moran's I
+data_temp <- na.omit(ngsaWA[,c("LONGITUDE", "LATITUDE", "As.AR")])
+colnames(data_temp) <- c("Longitude", "Latitude", "As.AR")
+data_temp$As.AR <- log10(data_temp$As.AR) # comment this line if not needed
+Coords <- cbind(data_temp$Longitude, data_temp$Latitude)
+bw <- 8
+locMI_ngsaWA_As.AR <- l.moransI(Coords,bw,data_temp$As.AR, scatter.plot = F)
+plotdata <- as.data.frame(cbind(Coords[,1:2], data_temp$As.AR, 
+                                locMI_ngsaWA_As.AR$Ii, 
+                                locMI_ngsaWA_As.AR$p.value))
+colnames(plotdata) <- c("Longitude", "Latitude", "As.AR", "MoranI", "p_value") # ;head(plotdata)
+medAs.AR <- median(plotdata$As.AR, na.rm = TRUE)
+HiHi <- subset(plotdata, plotdata$p_value<=0.05&plotdata$MoranI>0&plotdata$As.AR>=medAs.AR)
+LoLo <- subset(plotdata, plotdata$p_value<=0.05&plotdata$MoranI>0&plotdata$As.AR<medAs.AR)
+HiLo <- subset(plotdata, plotdata$p_value<=0.05&plotdata$MoranI<0&plotdata$As.AR>=medAs.AR)
+LoHi <- subset(plotdata, plotdata$p_value<=0.05&plotdata$MoranI<0&plotdata$As.AR<medAs.AR)
+
+# plot "LISA" points
+palette(c("black","red3","blue3","orange","skyblue",
+          "#FF8080","#8080FF","#FFA50040","#87CEEB40","white"))
+with(HiHi, points(Latitude ~ Longitude, pch = 22,
+                  col = 2, bg = 6, lwd = 2*sf, cex = 1.8*sf))
+with(LoLo, points(Latitude ~ Longitude, pch = 21, 
+                  col = 3, bg = 7, lwd = 2*sf, cex = 2*sf))
+with(HiLo, points(Latitude ~ Longitude, pch = 25,  
+                  col = 2, bg = 7, lwd = 3*sf, cex = 1.4*sf))
+with(LoHi, points(Latitude ~ Longitude, pch = 24,
+                  col = 3, bg = 6, lwd = 3*sf, cex = 1.4*sf))
+# legend background
+# rect(108, -20, 114, -13,
+#      col = "grey96", border = "grey", lwd = 2*sf)
+# legend title
+text(108, -14, font = 2,
+     labels = "Local Moran's I\nfor soil As.AR",
+     cex = 1.1*sf, offset = 0.3*sf, pos = 4, col = 1)
+mI <- moransI(Coords, bw, data_temp$As.AR)
+# legend subtitle
+text(108, -16.2,
+     labels = paste("Based on", bw, "nearest\n  neighbour points",
+                    "\nOnly plotting points\n  with p \u2264 0.05"),
+     cex = 1.1*sf, offset = 0.3*sf, pos = 4, col = 1, font = 3)
+# legend for LISA points
+legend(108,-17, bty = "n", inset = 0.03, cex = 1.2*sf,
+       legend = c("High-High", "Low-Low","High-Low","Low-High"),
+       pch = c(22, 21, 25,24), pt.cex = c(1.8,2,1.4,1.4)*sf, 
+       pt.lwd=c(2,2,3,3),
+       col = c(2,3,2,3), pt.bg = c(6,7,7,6), text.col = 1,
+       box.col = 10, box.lwd = 1.3*sf, bg = "#E0E0E0",
+       y.intersp = 1.2)
+# legend footnote
+text(108, -21,
+     labels = paste("Global Moran's I =", round(mI$Morans.I,3)),
+     cex = 1.1*sf, offset = 0.3*sf, pos = 4, col = 1)
+dev.off(); options(device = "RStudioGD"); getOption("device")
+# delete temporary objects made in code
+rm(list = c("bw","sf","mI","data_temp", "plotdata", "HiHi", "LoLo", "HiLo", "LoHi"))
+rm(list = ls(pattern = "med"))
+rm(list = ls(pattern = "locMI_"))
+```
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=5.5in]{ngsaWA_IDW.png}
+\caption{Map showing inverse-distance interpolated  arsenic (As) concentrations in the WA subset of the NGSA data, -2mm topsoil fraction. Local Moran's I is subdivided into positive autocorrelations (high-high and low-low) and negative autocorrelations (high-low and low-high), where high and low are separated by the median of the dependent variable}
+\label{IDW_map}
+\end{figure}
+
+The interpolated arsenic concentrations in Figure \ref{IDW_map} are qualitatively very similar to those generated by kriging interpolation in Figure \ref{KrigPred}. The code has been written to add significant local Moran's I (spatial autocorrelations), subdivided into categories: 
+
+\begin{enumerate}
+\item high-high refers to *positive* spatial autocorrelations between points having values *above* the overall median;
+\item low-low refers to *positive* spatial autocorrelations between points having values *below* the overall median;
+\item high-low refers to *negative* spatial autocorrelations around points having values *above* the overall median;
+\item low-high refers to *negative* spatial autocorrelations around points having values *below* the overall median;
+\end{enumerate}
+
+\section{References and R Package Citations}
+
+Caritat, P., Cooper, M., 2011. *National Geochemical Survey of Australia: The Geochemical Atlas of Australia*. GA Record 2011/20 (2 Volumes). Geoscience Australia, Canberra, 557 pp. https://www.ga.gov.au/about/projects/resources/national-geochemical-survey
+
+Dunnington, D. 2017. *prettymapr: Scale Bar, North Arrow, and Pretty Margins in R* (R package version 0.2.2). https://CRAN.R-project.org/package=prettymapr
+
+Evenden, G.I., 2003. *Cartographic Projection Procedures for the UNIX Environment-A User's Manual (Revised Edition)*, Open-File Report 90-284, U.S. Geological Survey, Woods Hole, MA, USA. http://download.osgeo.org/proj/OF90-284.pdf.
+
+Fellows, I., 2019. *OpenStreetMap: Access to open street map raster images, using the JMapViewer library by Jan Peter Stotz*. . (R Package Version 0.3.4) http://CRAN.R-project.org/package=OpenStreetMap http://blog.fellstat.com/?cat=15 
+
+Robert J. Hijmans (2020). *raster: Geographic Data Analysis and Modeling* (R package version 3.4-5). https://CRAN.R-project.org/package=raster
+
+Kalogirou, S., 2019. *Spatial Autocorrelation, Vignette for R package 'lctools'*, https://cran.r-project.org/web/packages/lctools/vignettes/SpatialAutocorrelation.html 
+
+Kalogirou, S. 2020. *lctools: Local Correlation, Spatial Inequalities, Geographically Weighted Regression and Other Tools* (R package version 0.2-8). https://CRAN.R-project.org/package=lctools
+
+Nychka, D., Furrer, R., Paige, J., Sain, S., Gerber, F., Iverson, M., 2021. *fields: Tools for Spatial Data* (R package version 12.3). doi:10.5065/D6W957CT https://CRAN.R-project.org/package=fields
+
+Oliver, M.A., Webster, R., 2014. A tutorial guide to geostatistics: Computing and modelling variograms and kriging. *Catena*, **113**: 56-69, https://doi.org/10.1016/j.catena.2013.09.006.
+
+Pebesma, E.J., 2004. Multivariable geostatistics in S: the gstat package. *Computers & Geosciences*, **30**: 683-691.
+
+Pebesma, E., Bivand, R., 2020. *sp: Classes and Methods for Spatial Data* (R package version 1.4-4). https://CRAN.R-project.org/package=sp 
+
+Reimann, C., Filzmoser, P., Garrett, R.G., Dutter, R., 2008. *Statistical Data Analysis Explained: Applied Environmental Statistics with R*. John Wiley & Sons, Chichester, England, 343 pp.
+
+Ribeiro Jr., P.J., Diggle, P.J., Schlather, M., Bivand, R., Ripley, B., 2020. *geoR: Analysis of Geostatistical Data* (R package version 1.8.1), http://CRAN.R-project.org/package=geoR
+
+Tobler, W., 2004. On the First Law of Geography: A Reply. *Annals of the Association of American Geographers*, **94**: 304-310, https://doi.org/10.1111/j.1467-8306.2004.09402009.x.
+
+USEPA, 2002. *Guidance on Choosing a Sampling Design for Environmental Data Collection for Use in Developing a Quality Assurance Project Plan*. EPA QA/G-5S, United States Environmental Protection Agency, Washington, DC. https://www.epa.gov/sites/production/files/2015-06/documents/g5s-final.pdf
+
+Webster, R., Oliver, M.A., 1993. How large a sample is needed to estimate the regional variogram adequately? *Geostatistics Troia '92*. **Vol. 1**: 155-166. https://link.springer.com/chapter/10.1007%2F978-94-011-1739-5_14
+
+Zhang, C., Luo, L., Xu, W., Ledwith, V., 2008. Use of local Moran's I and GIS to identify pollution hotspots of Pb in urban soils of Galway, Ireland. *Science of the Total Environment*, **398**: 212-221, https://doi.org/10.1016/j.scitotenv.2008.03.011.
+
+\begin{figure}[b!]
+\centering
+\includegraphics[width=6.6in]{combined_NGSA_WA_Hg.png}
+\caption{Geostatistics for Hg (mercury) in the WA subset of the NGSA data: (a) spatial autocorrelation, (b) exparimental (binned) and model variograms, (c) kriging predictions, and (d) kriging uncertainties.}
+\label{Hg_x4}
+\end{figure}
