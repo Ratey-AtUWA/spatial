@@ -1,5 +1,5 @@
 # spatial
-geostatsistics and spatial statistics, with maps of course.
+geostatsistics and spatial statistics, with maps and all coded in R of course.
 This will contain (eventually) any spatial R code and data that I use in teaching at The University of Western Australia, in these units:
 <ul>
 <li>ENVT3361 Environmental Assessment</li>
