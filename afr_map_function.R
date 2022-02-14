@@ -1,4 +1,5 @@
-# proj = "utm"; xlim = c(399900,400600); ylim = c(6467800,6468400); maplabels = FALSE
+# creates function to draw Ashfield Flats Reserve map from digitised
+# data in "../spatial/main/afr_map_v2.csv"
 afrMap <- function(
   proj = "utm",
   xlim = NULL,
@@ -70,6 +71,3 @@ afrMap <- function(
     box()
   }
 }
-afrMap()
-afrMap(xlim = c(400000,400500), ylim = c(6467900,6468400), maplabels = T)
-names(afr_map)
