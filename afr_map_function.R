@@ -7,12 +7,14 @@ afrMap <- function(
   maplabels = TRUE
 )
 { require(prettymapr)
-   if (proj == "utm"){
-      z <- 2
-      axlabs <- c("UTM Easting (m)","UTM Northing (m)")
-    } else {
+   if (proj != "utm"){
       z <- 0
       axlabs <- c("Longitude (\u00B0E)","Latitude (\u00B0S)")
+      aspct <- 1.2
+    } else {
+      z <- 2
+      axlabs <- c("UTM Easting (m)","UTM Northing (m)")
+      aspct <- 1
     }
 
   afr_map <- read.csv(file="https://raw.githubusercontent.com/Ratey-AtUWA/spatial/main/afr_map_v2.csv", 
@@ -21,7 +23,8 @@ afrMap <- function(
             "purple","darkcyan","gold2","gray50","white"))
   par(mar = c(3.5, 3.5, 1, 1), mgp = c(1.7, 0.3, 0), tcl = 0.25, font.lab = 2,
       lend = "round", ljoin = "mitre")
-  plot(afr_map[,10+z], afr_map[,11+z], lwd=1, col = "darkkhaki", lty = 3, asp=1, type="l",
+ plot(afr_map[,10+z], afr_map[,11+z], 
+       lwd=1, col = "darkkhaki", lty = 3, asp=aspct, type="l",
        xlab = axlabs[1], ylab = axlabs[2], xlim = xlim, ylim = ylim)
   polygon(afr_map[,6+z], afr_map[,7+z], border = "#9AB79A", col = "#9AB79A")
   polygon(afr_map[,20+z], afr_map[,21+z], border = "dodgerblue", col = "lightblue")
