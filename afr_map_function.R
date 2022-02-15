@@ -11,10 +11,12 @@ afrMap <- function(
       z <- 0
       axlabs <- c("Longitude (\u00B0E)","Latitude (\u00B0S)")
       aspct <- 1.2
+      epsg <- 4326
     } else {
       z <- 2
       axlabs <- c("UTM Easting (m)","UTM Northing (m)")
       aspct <- 1
+      epsg <- 32750
     }
 
   afr_map <- read.csv(file="https://raw.githubusercontent.com/Ratey-AtUWA/spatial/main/afr_map_v2.csv", 
@@ -42,7 +44,7 @@ afrMap <- function(
         lty = 2, col = "grey67")
   
   addnortharrow()
-  addscalebar(plotepsg=32750, htin = 0.15, 
+  addscalebar(plotepsg = epsg, htin = 0.15, 
               label.cex = 1.2)
 
   afrLabels <- 
