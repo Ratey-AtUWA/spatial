@@ -13,6 +13,5 @@ afrMap()
 #   ylim is a vector of upper and lower y-axis (S-N or vertical) limits
 #   maplabels can either be TRUE (default) or FALSE and 
 #     controls if selected map features are labelled
-#     (only currently works for proj = "utm"!)
 #   For example, try:
 #   afrMap(proj = "longlat", maplabels = T)
