@@ -4,7 +4,9 @@ afrMap <- function(
   proj = "utm",
   xlim = NULL,
   ylim = NULL,
-  maplabels = TRUE
+  maplabels = TRUE,
+  pos.north = "topleft",
+  pos.scale = "bottomleft"
 )
 { require(prettymapr)
    if (proj != "utm"){
