@@ -45,9 +45,9 @@ afrMap <- function(
   lines(afr_map[,29+z],afr_map[,30+z], 
         lty = 2, col = "grey67")
   
-  addnortharrow()
+  addnortharrow(pos = pos.north)
   addscalebar(plotepsg = epsg, htin = 0.15, 
-              label.cex = 1.2)
+              label.cex = 1.2, pos = pos.scale)
 
   afrLabels <- 
     read.csv(file="https://raw.githubusercontent.com/Ratey-AtUWA/spatial/main/afr_labels.csv")
