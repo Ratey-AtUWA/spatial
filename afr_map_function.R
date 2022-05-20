@@ -75,7 +75,7 @@ afrMap <- function(
        labels = afrLabels[7,1], 
        col = "grey65", srt = 59)
     text(afrLabels[8,4-z], afrLabels[8,5-z], 
-       labels = "Ashfield Flats\nReserve", 
+       labels = "Ashfield\nFlats\nReserve", 
        col = "darkolivegreen", font = 3, cex = 1.2)
     points(afrLabels[9,4-z], afrLabels[9,5-z], 
          pch = 19, cex = 0.75, 
