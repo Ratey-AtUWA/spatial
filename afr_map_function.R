@@ -23,11 +23,9 @@ afrMap <- function(
 
   afr_map <- read.csv(file="https://raw.githubusercontent.com/Ratey-AtUWA/spatial/main/afr_map_v2.csv", 
                     stringsAsFactors = TRUE)
-  palette(c("black","red3","darkgreen","blue2","sienna",
-            "purple","darkcyan","gold2","gray50","white"))
   par(mar = c(3.5, 3.5, 1, 1), mgp = c(1.7, 0.3, 0), tcl = 0.25, font.lab = 2,
       lend = "round", ljoin = "mitre")
- plot(afr_map[,10+z], afr_map[,11+z], 
+  plot(afr_map[,10+z], afr_map[,11+z], 
        lwd=1, col = "darkkhaki", lty = 3, asp=aspct, type="l",
        xlab = axlabs[1], ylab = axlabs[2], xlim = xlim, ylim = ylim)
   polygon(afr_map[,6+z], afr_map[,7+z], 
@@ -37,7 +35,7 @@ afrMap <- function(
   polygon(afr_map[1:67, 24+z], afr_map[1:67, 25+z], 
           border = "dodgerblue", col = "lightblue")
   polygon(afr_map[69:92, 24+z], afr_map[69:92, 25+z], 
-          border = "dodgerblue", col = 10)
+          border = "dodgerblue", col = "white")
   lines(afr_map[,2+z],afr_map[,3+z], 
         lwd=5, col = "grey")
   lines(afr_map[,15+z],afr_map[,16+z], 
