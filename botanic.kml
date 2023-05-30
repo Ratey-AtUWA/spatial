@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>botanic.kml</name>
+	<StyleMap id="msn_open-diamond">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#sn_open-diamond</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#sh_open-diamond</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="sh_open-diamond">
+		<IconStyle>
+			<color>ff00ffff</color>
+			<scale>1.4</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/shapes/open-diamond.png</href>
+			</Icon>
+		</IconStyle>
+		<BalloonStyle>
+		</BalloonStyle>
+		<ListStyle>
+		</ListStyle>
+	</Style>
+	<Style id="sn_open-diamond">
+		<IconStyle>
+			<color>ff00ffff</color>
+			<scale>1.2</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/shapes/open-diamond.png</href>
+			</Icon>
+		</IconStyle>
+		<BalloonStyle>
+		</BalloonStyle>
+		<ListStyle>
+		</ListStyle>
+	</Style>
+	<Folder>
+		<name>botanic</name>
+		<open>1</open>
+		<Placemark>
+			<name>1 [1:Point]</name>
+			<snippet></snippet>
+			<LookAt>
+				<longitude>115.8195999531556</longitude>
+				<latitude>-31.98391301601761</latitude>
+				<altitude>0</altitude>
+				<heading>1.525905595663635e-05</heading>
+				<tilt>0</tilt>
+				<range>35.99901380439271</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#msn_open-diamond</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>115.8195161243086,-31.9838843287406,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>1 [2:Point]</name>
+			<snippet></snippet>
+			<LookAt>
+				<longitude>115.8195999531556</longitude>
+				<latitude>-31.98391301601761</latitude>
+				<altitude>0</altitude>
+				<heading>1.525905595663635e-05</heading>
+				<tilt>0</tilt>
+				<range>35.99901380439271</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#msn_open-diamond</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>115.8194947274691,-31.98390217166924,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>1 [3:Point]</name>
+			<snippet></snippet>
+			<LookAt>
+				<longitude>115.8195999531556</longitude>
+				<latitude>-31.98391301601761</latitude>
+				<altitude>0</altitude>
+				<heading>1.525905595663635e-05</heading>
+				<tilt>0</tilt>
+				<range>35.99901380439271</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#msn_open-diamond</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>115.819610330976,-31.98396639399636,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>1 [4:Point]</name>
+			<snippet></snippet>
+			<LookAt>
+				<longitude>115.8195999531556</longitude>
+				<latitude>-31.98391301601761</latitude>
+				<altitude>0</altitude>
+				<heading>1.525905595663635e-05</heading>
+				<tilt>0</tilt>
+				<range>35.99901380439271</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#msn_open-diamond</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>115.8196425417202,-31.98393060965703,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>1 [5:Point]</name>
+			<snippet></snippet>
+			<LookAt>
+				<longitude>115.8195999531556</longitude>
+				<latitude>-31.98391301601761</latitude>
+				<altitude>0</altitude>
+				<heading>1.525905595663635e-05</heading>
+				<tilt>0</tilt>
+				<range>35.99901380439271</range>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</LookAt>
+			<styleUrl>#msn_open-diamond</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>115.8195900891629,-31.98389403778529,0</coordinates>
+			</Point>
+		</Placemark>
+	</Folder>
+</Document>
+</kml>
